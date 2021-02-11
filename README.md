@@ -4,6 +4,8 @@
 
 ----
 
+# Connection
+Raspberry doesn't have ADC. So we need ADS1115 (Analog-to-Digital Converter) between sensor's analogue output and rpi.
 
 # MQ135 (Gas Sensor)
 
