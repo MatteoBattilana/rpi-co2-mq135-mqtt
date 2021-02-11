@@ -1,33 +1,32 @@
-#!/usr/bin/python
-"""
-@name: MQ-135.py - MQ-135 GAS SENSOR
-@disclaimer: Copyright 2017, KRIPT4
-@lastrelease: Dic 27 2017 16:50
-"""
+#!/usr/bin/python3
 
 """
-MQ135 gas sensor | ADS1115 (Analog-to-Digital Converter for Raspberry Pi)
+MQ135 gas sensor
 
 Datasheet can be found here: https://www.olimex.com/Products/Components/Sensors/SNS-MQ135/resources/SNS-MQ135.pdf
 
 Application
 They are used in air quality control equipments for buildings/offices, are suitable for detecting of NH3, NOx, alcohol, Benzene, smoke, CO2, etc
 
-Original creator of this library: https://github.com/GeorgK/MQ135
+Original creator of this library: https://github.com/GeorgK/MQ135 -> https://github.com/KRIPT4/MQ135-ADS1115-Python
 """
 
-import sys
-import math
-import operator
+import sys, math, operator, json, time
+import paho.mqtt.client as mqtt
 
+# TODO: use actual values
 t = 22 # assume current temperature. Recommended to measure with DHT22
 h = 65 # assume current humidity. Recommended to measure with DHT22
 
 """
-First version of an RaspBerryPi Library for the MQ135 gas sensor
+GeorgK, 2014
 TODO: Review the correction factor calculation. This currently relies on
-the datasheet but the information there seems to be wrong.
+the datasheet but the information there seems to be wrong...
 """
+
+#
+# Sensor Model Params
+#
 
 # The load resistance on the board
 RLOAD = 10.0
@@ -48,6 +47,18 @@ CORG = 1.130128205
 
 # Atmospheric CO2 level for calibration purposes
 ATMOCO2 = 397.13
+
+
+#
+# MQTT
+#
+
+# Hey, If you don't want to fork it, let's create env variable config
+MQTT_HOST = '192.168.1.68' 
+MQTT_TOPIC = '/bedroom/weather/gas'
+# https://www.home-assistant.io/integrations/sensor.mqtt/
+# https://www.home-assistant.io/docs/mqtt/discovery#motion-detection-binary-sensor
+
 
 """
 @brief  Get the correction factor to correct for temperature and humidity
@@ -147,7 +158,43 @@ More Info: https://www.arduino.cc/reference/en/language/functions/math/map/
 def map(x,in_min,in_max,out_min,out_max):
 	return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
 
-def main():
+
+print("[mqtt] initing...")
+mqttc = mqtt.Client(client_id = MQTT_TOPIC, clean_session = False)
+
+def pub_mqtt(jsonrow):
+    #cmd = ['mosquitto_pub', '-h', MQTT_HOST, '-t', MQTT_TOPIC, '-s']
+    #print('Publishing using:', cmd)
+    #with subprocess.Popen(cmd, shell=False, bufsize=0, stdin=subprocess.PIPE).stdin as f:
+    #    json.dump(jsonrow, f)
+    payload = json.dumps(jsonrow)
+    mqttc.publish(MQTT_TOPIC, payload, retain=True)
+    print('>mqtt', payload)
+
+def on_connect(mqttc, userdata, flags, rc):
+    global is_mqtt_connected
+
+    print("Connected to mqtt with result code "+str(rc))
+    #print(f"[mqtt] subscribing... {MQTT_TOPIC_CMD}")
+    #mqttc.subscribe(MQTT_TOPIC_CMD)
+    #mqttc.subscribe(MQTT_TOPIC_SW_CMD)
+    #print("[mqtt] subscribed")
+    is_mqtt_connected = True
+
+mqttc.enable_logger(logger=None)
+mqttc.on_connect = on_connect
+#mqttc.on_message = on_message
+print("[mqtt] connecting...")
+mqttc.connect(MQTT_HOST)
+
+# mqttc.loop_forever()
+mqttc.loop_start() # loop thread
+
+if __name__ == "__main__":
+    #print('auto conf ha mqtt sensor')
+    #pub_mqtt(HA_MQTT_CONF)
+    print("start MQ135 loopback...")
+    while True:
 	value_ads = 3300 # value obtained by ADS1115
 	value_pin = map((value_ads - 565), 0, 26690, 0, 1023) # 565 / 535 fix value
 	rzero = getRZero(value_pin,RLOAD,ATMOCO2,PARA,PARB)
@@ -161,6 +208,7 @@ def main():
 	print("\t Resistance: %s" % round(resistance))
 	print("\t PPM: %s" % round(ppm))
 	print("\t Corrected PPM: %s ppm" % round(correctedPPM))
+	pub_mqtt({ co2_ppm: correctedPPM })
 
-if __name__ == "__main__":
-	main()
+	print("Going to sleep for 1 min...")
+        time.sleep(60)
